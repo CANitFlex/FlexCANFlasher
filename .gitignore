@@ -61,6 +61,7 @@ dist/
 venv/
 .venv/
 env/
+venv*
 
 # Language Servers
 .clangd/

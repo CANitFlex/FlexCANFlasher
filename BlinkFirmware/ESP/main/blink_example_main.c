@@ -37,19 +37,19 @@ static void configure_led(void)
     /* Set the GPIO as a push/pull output */
     gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
 }
-
+ 
 
 void app_main(void)
 { 
 
     /* Configure the peripheral according to the LED type */
     configure_led();
- 
     while (1) {
-        ESP_LOGI(TAG, "Turning the LED %s!", s_led_state == true ? "ON " : "OFF");
+        ESP_LOGI(TAG, "Turning the %s!!!", s_led_state == true ? "ON " : "OFF");
         blink_led();
         /* Toggle the LED state */
         s_led_state = !s_led_state;
         vTaskDelay(BLINK_PERIOD / portTICK_PERIOD_MS);
     }
 }
+ 

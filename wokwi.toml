@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = 'OTA_Firmware_tests/build/OTA_Firmware_tests.bin'
+elf = 'OTA_Firmware_tests/build/OTA_Firmware_tests.elf'
