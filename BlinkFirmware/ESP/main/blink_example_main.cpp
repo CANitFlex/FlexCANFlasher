@@ -13,18 +13,20 @@
 #include "esp_log.h"
 #include "sdkconfig.h"
 
-#include "can_task.h"
+#include "CanReceiver.h"
 
 static const char *TAG = "example";
 
 // WROOM - GPIO2 
 // S3    - GPIO5 
 // C3    - GPIO8 
-#define BLINK_GPIO 2
+#define BLINK_GPIO GPIO_NUM_2
 #define BLINK_PERIOD 1000
 
 static uint8_t s_led_state = 0;
 
+
+static CanReceiver canReceiver;
 
 static void blink_led(void)
 {
@@ -52,29 +54,22 @@ static void led_task(void *arg)
         vTaskDelay(BLINK_PERIOD / portTICK_PERIOD_MS);
     }
 }
- 
+
+
 
 extern "C" void app_main(void)
 { 
 
-    ESP_LOGI(TAG, " CAN Receiver starting (CAN ID = 0x%X)", MY_CAN_ID);
-
-    if (initTWAI() != ESP_OK) {
-        ESP_LOGE(TAG, "TWAI init failed aborting ");
-        return;
+    esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to mark app as valid: %s", esp_err_to_name(err));
     }
 
-    // Create the queue for CAN messages
-    canQueue = xQueueCreate(10, sizeof(twai_message_t));
-    if (canQueue == NULL) {
-        ESP_LOGE(TAG, "Failed to create CAN message queue");
-        return;
-    }
+    CanReceiver::initTWAI();
 
-    /* Configure the peripheral according to the LED type */
+        /* Configure the peripheral according to the LED type */
 
     xTaskCreate(led_task, "led_task", 8192, NULL, 1, NULL); // Low priority
-
-    xTaskCreate(can_receiver_task, "can_rx", 8192, NULL, 1, NULL); // Low priority
+    xTaskCreate(reinterpret_cast<TaskFunction_t>(&CanReceiver::canReceiverTask), "can_rx", 8192, NULL, 2, NULL); // Low priority
 }
  

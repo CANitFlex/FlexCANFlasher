@@ -1,3 +1,4 @@
+from email import message
 import os
 import time
 import logging
@@ -5,12 +6,14 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import paho.mqtt.client as mqtt
 import json
+from Helper.ConfigLoader import ConfigLoader
 from Helper.MQTTConfig import MQTTConfig
 from Helper.ProjectConfig import ProjectConfig
 
 # Logging einrichten
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+configLoader = ConfigLoader()
 # MQTT-Konfiguration
 mqtt_config = MQTTConfig()
 project_config = ProjectConfig()
@@ -19,10 +22,13 @@ project_config = ProjectConfig()
 MQTT_BROKER = mqtt_config.mqtt_broker
 MQTT_PORT = mqtt_config.mqtt_port
 MQTT_TOPIC = mqtt_config.mqtt_topic
+MQTT_MESSAGE_TEMPLATE = mqtt_config.mqtt_message_template()
 FIRMWARE_BUILD_PATH = project_config.build_dir
 
 # Build-Pfad
 project_config = ProjectConfig()
+PROJECT_BUILD_DIR = project_config.build_dir
+PROJECT_NAME = project_config.project_name
 BUILD_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), project_config.build_dir)
 
 class BuildEventHandler(FileSystemEventHandler):
@@ -32,13 +38,12 @@ class BuildEventHandler(FileSystemEventHandler):
 
     def build_message(self, file_name):
         """Erstellt die Nachricht im gewünschten Format."""
-        message = {
-            "command": "update",
-            "version": "1",  # Beispielwert, kann dynamisch angepasst werden
-            "device": "ESP32",  # Beispielwert, kann dynamisch angepasst werden
-            "can_id": "0x100",  # Beispielwert, kann dynamisch angepasst werden
-            "path" : "BlinkFirmware/ESP/build/BlinkFirmware_ESP.bin" # Pfad zur .bin-Datei
-        }
+        message = MQTT_MESSAGE_TEMPLATE.copy()
+        version = message.get("version", "1")  
+        message["version"] = str(int(version) + 1)  
+        configLoader.set("mqtt.message.version", message["version"])
+        message["path"] = os.path.join(PROJECT_BUILD_DIR, f"{PROJECT_NAME}.bin")
+
         return message
 
     def check_and_process_bin_file(self, file_path):

@@ -13,4 +13,6 @@ class ProjectConfig:
     @property
     def build_dir(self) -> str:
         return self.config.get("project.build_dir")
-    
+    @property
+    def project_name(self) -> str:
+        return self.config.get("project.project_name")

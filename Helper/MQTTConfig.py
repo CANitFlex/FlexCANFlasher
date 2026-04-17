@@ -15,3 +15,11 @@ class MQTTConfig:
     @property
     def mqtt_topic(self) -> str:
         return self.config.get("mqtt.topic", "build/notifications")
+    
+    def mqtt_message_template(self) -> dict:
+        return self.config.get("mqtt.message", {
+            "command": "update",
+            "version": "{version}",
+            "device": "{device}",
+            "can_id": "{can_id}"
+        })
