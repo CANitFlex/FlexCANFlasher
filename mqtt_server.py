@@ -27,9 +27,8 @@ FIRMWARE_BUILD_PATH = project_config.build_dir
 
 # Build-Pfad
 project_config = ProjectConfig()
-PROJECT_BUILD_DIR = project_config.build_dir
-PROJECT_NAME = project_config.project_name
-BUILD_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), project_config.build_dir)
+parent_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+BUILD_PATH = os.path.join(parent_dir, project_config.build_dir)
 
 class BuildEventHandler(FileSystemEventHandler):
     def __init__(self, mqtt_client):
@@ -42,7 +41,7 @@ class BuildEventHandler(FileSystemEventHandler):
         version = message.get("version", "1")  
         message["version"] = str(int(version) + 1)  
         configLoader.set("mqtt.message.version", message["version"])
-        message["path"] = os.path.join(PROJECT_BUILD_DIR, f"{PROJECT_NAME}.bin")
+        message["path"] = os.path.join(BUILD_PATH, f"{BUILD_PATH}.bin")
 
         return message
 

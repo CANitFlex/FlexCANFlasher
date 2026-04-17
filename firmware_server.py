@@ -18,12 +18,14 @@ HTTPS_PORT = config.https_port
 
 
 def start_https_server(config: ServerConfig) -> None:
+    os.chdir("..")
 
     httpd = http.server.HTTPServer((config.server_ip, config.https_port), http.server.SimpleHTTPRequestHandler)
 
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    server_file = os.path.join(config.cert_dir, "server_cert.pem")
-    key_file = os.path.join(config.cert_dir, "server_key.pem")
+    server_file = os.path.join("./FlexCANFlasher", config.cert_dir, "server_cert.pem")
+    key_file = os.path.join("./FlexCANFlasher", config.cert_dir, "server_key.pem")
+    print(f"Using SSL certificate: {server_file} and key: {key_file}")
     ssl_context.load_cert_chain(certfile=server_file, keyfile=key_file)
 
     httpd.socket = ssl_context.wrap_socket(httpd.socket, server_side=True)
