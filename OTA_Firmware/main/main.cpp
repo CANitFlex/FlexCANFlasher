@@ -18,6 +18,7 @@
 #include "WifiConnectionBuilder.h"
 #include "OTAConnectionBuilder.h"
 #include "MQTTConnectionBuilder.h"
+#include "CANFlashBuilder.h"
 
 
 
@@ -89,5 +90,8 @@ extern "C" void app_main(void)
 
     MQTTConnectionBuilder::startMQTT();
 
-    xTaskCreate(reinterpret_cast<TaskFunction_t>(&OTAConnectionBuilder::createOTATask), "ota", 8192, NULL, 5, NULL);
+    CANFlashBuilder::createCANFlashQueue();
+
+    xTaskCreate(reinterpret_cast<TaskFunction_t>(&OTAConnectionBuilder::createOTATask), "ota_task", 8192, NULL, 5, NULL);
+    xTaskCreate(reinterpret_cast<TaskFunction_t>(&CANFlashBuilder::canFlashTask), "can_flash_task", 8192, NULL, 5, NULL);
 }

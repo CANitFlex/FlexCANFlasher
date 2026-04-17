@@ -11,6 +11,7 @@
 #include "mbedtls/sha256.h"
 #include "ConfigBuilder.h"
 #include "MQTTConnectionBuilder.h"
+#include "CANFlashBuilder.h"
 
 extern const uint8_t _binary_server_cert_pem_start[];
 extern const uint8_t _binary_server_cert_pem_end[];
@@ -26,35 +27,56 @@ public:
     static constexpr char *TAG = "OTAConnectionBuilder OTA_Firmware";
 
     static void createOTATask() {
-        QueueHandle_t queue = MQTTConnectionBuilder::getOTAQueue();
-        OTAMessage msg;
+    QueueHandle_t ota_queue = MQTTConnectionBuilder::getOTAQueue();
+    QueueHandle_t can_queue = CANFlashBuilder::getCANFlashQueue();
+    OTAMessage msg;
 
-        while (1) {
-            if (xQueueReceive(queue, &msg, portMAX_DELAY)) {
-                ESP_LOGI(TAG, "Got MQTT message: %s", msg.command);
+    while (1) {
+        if (xQueueReceive(ota_queue, &msg, portMAX_DELAY)) {
+            ESP_LOGI(TAG, "OTA request: device=%s ver=%s can_id=0x%" PRIX32,
+                     msg.device_id, msg.version, msg.can_id);
 
-                // Use the received path for OTA
-                static esp_http_client_config_t httpConfig = {};
-                httpConfig = buildHttpConfig(msg.command);
-                esp_https_ota_config_t ota_config = {
-                    .http_config = &httpConfig,
-                };
+            // Dateipfad bauen: /spiffs/controllerA_v1.2.bin
+            char filepath[64];
+            snprintf(filepath, sizeof(filepath), "/spiffs/firmware.bin");
 
-                ESP_LOGI(TAG, "Starting OTA from: %s", httpConfig.url);
-                esp_err_t ret = downloadFirmware(&ota_config);
-                if (ret == ESP_OK) {
-                    ESP_LOGI(TAG, "Firmware downloaded successfully.");
-                } else {
-                    ESP_LOGE(TAG, "Firmware download failed");
-                }
-                if (httpConfig.url) {
-                    free((void*)httpConfig.url);
-                }
+            static esp_http_client_config_t httpConfig = {};
+            httpConfig = buildHttpConfig(msg.command);
+            esp_https_ota_config_t ota_config = { .http_config = &httpConfig };
+
+            // Download → SPIFFS
+            uint32_t firmware_size = 0;
+            esp_err_t ret = downloadFirmware(&ota_config, &firmware_size);
+
+            if (httpConfig.url) free((void*)httpConfig.url);
+
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Download failed for %s", filepath);
+                continue;
+            }
+
+            if (firmware_size == 0) {
+                ESP_LOGE(TAG, "Firmware size is 0, aborting");
+                continue;
+            }
+            ESP_LOGI(TAG, "Firmware size: %" PRIu32 " bytes", firmware_size);
+
+            // ─── Übergabe an CAN Flash Task ──────────────────────────────
+            CANFlashMessage can_msg = {};
+            strncpy(can_msg.firmware_path, filepath, sizeof(can_msg.firmware_path) - 1);
+            can_msg.can_id        = 0x100;  // TODO: use msg.can_id from MQTT message
+            can_msg.firmware_size = firmware_size;
+
+            if (xQueueSend(can_queue, &can_msg, pdMS_TO_TICKS(1000)) == pdTRUE) {
+                ESP_LOGI(TAG, "→ CAN queue: %s to 0x%" PRIX32, filepath, msg.can_id);
+            } else {
+                ESP_LOGE(TAG, "CAN queue full!");
             }
         }
     }
+}
 
-    static esp_err_t downloadFirmware(const esp_https_ota_config_t* ota_config) {
+    static esp_err_t downloadFirmware(const esp_https_ota_config_t* ota_config, uint32_t *out_firmware_size = nullptr) {
         ESP_LOGI(TAG, "Downloading firmware...");
 
         // SPIFFS mounten
@@ -149,12 +171,16 @@ public:
         ESP_LOGI(TAG, "Firmware written: %d bytes", total_written);
         ESP_LOGI(TAG, "Firmware SHA256:  %s", sha256_hex);
 
-        // Größenprüfung
+        // Size check
         if (err == ESP_OK && content_length > 0 && total_written != content_length) {
             ESP_LOGE(TAG, "Size mismatch: expected %d, got %d", content_length, total_written);
             err = ESP_ERR_INVALID_SIZE;
         } else if (err == ESP_OK) {
             ESP_LOGI(TAG, "Download complete: %d bytes", total_written);
+        }
+
+        if (out_firmware_size) {
+            *out_firmware_size = (uint32_t)total_written;
         }
 
         fclose(file);

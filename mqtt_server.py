@@ -4,6 +4,7 @@ import logging
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import paho.mqtt.client as mqtt
+import json
 from Helper.MQTTConfig import MQTTConfig
 from Helper.ProjectConfig import ProjectConfig
 
@@ -29,6 +30,17 @@ class BuildEventHandler(FileSystemEventHandler):
         self.mqtt_client = mqtt_client
         self.last_timestamps = {}
 
+    def build_message(self, file_name):
+        """Erstellt die Nachricht im gewünschten Format."""
+        message = {
+            "command": "update",
+            "version": "1",  # Beispielwert, kann dynamisch angepasst werden
+            "device": "ESP32",  # Beispielwert, kann dynamisch angepasst werden
+            "can_id": "0x100",  # Beispielwert, kann dynamisch angepasst werden
+            "path" : "BlinkFirmware/ESP/build/BlinkFirmware_ESP.bin" # Pfad zur .bin-Datei
+        }
+        return message
+
     def check_and_process_bin_file(self, file_path):
         """Überprüft und verarbeitet eine .bin-Datei."""
         file_name = os.path.basename(file_path)
@@ -41,8 +53,11 @@ class BuildEventHandler(FileSystemEventHandler):
                 if file_name not in self.last_timestamps or self.last_timestamps[file_name] < file_timestamp:
                     self.last_timestamps[file_name] = file_timestamp
                     logging.info(f"Neue .bin-Datei gefunden: {file_path}")
-                    self.mqtt_client.publish(MQTT_TOPIC, f"{FIRMWARE_BUILD_PATH}/{file_name}")
-                    logging.info(f"MQTT-Nachricht gesendet: {FIRMWARE_BUILD_PATH}/{file_name}")
+
+                    # Nachricht erstellen und senden
+                    message = self.build_message(file_name)
+                    self.mqtt_client.publish(MQTT_TOPIC, json.dumps(message))
+                    logging.info(f"MQTT-Nachricht gesendet: {json.dumps(message)}")
             else:
                 logging.debug(f"Datei existiert nicht: {file_path}")
         except Exception as e:

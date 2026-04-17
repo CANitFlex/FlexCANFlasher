@@ -7,14 +7,56 @@ An ESP32 Over-The-Air (OTA) firmware update system. A Python-based HTTPS server 
 
 ```
 ┌──────────────┐       MQTT notification        ┌──────────────┐
-│  mqtt_server  │ ──────────────────────────────► │    ESP32      │ ──────────────────────────────►SPIFFS
-│  (watchdog)   │   "firmware/update" topic       │  OTA_Firmware │
-└──────────────┘                                  └──────┬───────┘
-                                                         │
-┌──────────────┐       HTTPS download                    │
-│firmware_server│ ◄──────────────────────────────────────┘
-│  (HTTPS/TLS) │   fetches .bin via URL
-└──────────────┘
+│  mqtt_server  │ ──────────────────────────────► │    ESP32      │──────────►SPIFFS
+│  (watchdog)   │   "firmware/update" topic       │  OTA_Firmware │             │
+└──────────────┘                                  └──────┬───────┘              │
+                                                         │                      │ Write over CAN
+┌──────────────┐       HTTPS download                    │   ┌──────────────┐   |
+│firmware_server│ ◄──────────────────────────────────────┘   | Node Listener|◄───
+│  (HTTPS/TLS) │   fetches .bin via URL                      | New Firmware |
+└──────────────┘                                             └──────────────┘
+```
+
+## CAN Flash FLow
+```
+Gateway                          Target
+   │                                │
+   │── BEGIN (size=185888) ────────▶│ esp_ota_begin()
+   │◀─ ACK ─────────────────────────│
+   │                                │
+   │── DATA x16 ────────────────────▶│ esp_ota_write() x16
+   │◀─ ACK ──────────────────────────│
+   │── DATA x16 ───────────────────▶ │
+   │── CRC ─────────────────────────▶│ crc16(batch)
+   │◀─ ACK ──────────────────────────│
+   │◀─ ACK ──────────────────────────│
+   │    ... (XXX.XXX Frames total)    │
+   │                                │
+   │── END ─────────────────────────▶│ esp_ota_end()
+   │◀─ ACK ──────────────────────────│ esp_ota_set_boot_partition()
+   │                                │ esp_restart()
+```
+## Complete Flow Example
+```
+MQTT Broker
+    │  {"path":"firmware/ctrlA_v1.2.bin","device_id":"ctrlA","version":"v1.2","can_id":512}
+    ▼
+MQTTConnectionBuilder → OTA Queue
+    │
+    ▼
+OTAConnectionBuilder (Task)
+    │  downloadFirmware() → /spiffs/firmware.bin
+    │  firmware_size ← out_firmware_size (from HTTP Content-Length)
+    │
+    ▼ CANFlashMessage
+
+CANFlashBuilder (Task)
+    │  BEGIN → ACK
+    │  DATA x16 → CRC → ACK  (repeated)
+    │  END → ACK
+    ▼
+Target ESP32 (CANFlashReceiver)
+    esp_ota_write() → esp_ota_end() → esp_restart()
 ```
 
 1. **mqtt_server.py** – Watches the build directory for new `.bin` files and publishes the firmware path to an MQTT topic.

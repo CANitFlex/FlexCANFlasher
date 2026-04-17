@@ -15,10 +15,14 @@
 #include "freertos/queue.h"
 
 #include "ConfigBuilder.h"
+#include "cJSON.h"
 
 // Message structure for OTA Task
 typedef struct {
-    char command[256];  // Erhöhen der Größe auf 256 Zeichen
+    char command[256];   // Firmware URL path
+    char device_id[32];  // e.g. "controllerA"
+    char version[16];    // e.g. "v1.2"
+    uint32_t can_id;     // Target CAN Bus ID
 } OTAMessage;
 
 class MQTTConnectionBuilder {
@@ -66,19 +70,54 @@ public:
             ESP_LOGI(TAG, "MQTT_EVENT_DATA");
             ESP_LOGI(TAG, "TOPIC=%.*s", event->topic_len, event->topic);
             ESP_LOGI(TAG, "DATA=%.*s", event->data_len, event->data);
-            
-            // Send message to OTA Task via Queue
+
+            // Parse JSON: {"path": "...", "can_id": 123, "device_id": "...", "version": "..."}
+            char *data_copy = (char*)malloc(event->data_len + 1);
+            if (!data_copy) {
+                ESP_LOGE(TAG, "Failed to allocate memory for MQTT data");
+                break;
+            }
+            memcpy(data_copy, event->data, event->data_len);
+            data_copy[event->data_len] = '\0';
+
+            cJSON *json = cJSON_Parse(data_copy);
+            if (!json) {
+                ESP_LOGE(TAG, "Failed to parse MQTT JSON data");
+                free(data_copy);
+                break;
+            }
+
             OTAMessage msg = {};
-            int data_len = (event->data_len < sizeof(msg.command) - 1) ? 
-                          event->data_len : sizeof(msg.command) - 1;
-            strncpy(msg.command, (const char*)event->data, data_len);
-            msg.command[data_len] = '\0';
+
+            cJSON *path = cJSON_GetObjectItem(json, "path");
+            if (cJSON_IsString(path)) {
+                strncpy(msg.command, path->valuestring, sizeof(msg.command) - 1);
+            }
+
+            cJSON *can_id = cJSON_GetObjectItem(json, "can_id");
+            if (cJSON_IsNumber(can_id)) {
+                msg.can_id = (uint32_t)can_id->valuedouble;
+            }
+
+            cJSON *device_id = cJSON_GetObjectItem(json, "device_id");
+            if (cJSON_IsString(device_id)) {
+                strncpy(msg.device_id, device_id->valuestring, sizeof(msg.device_id) - 1);
+            }
+
+            cJSON *version = cJSON_GetObjectItem(json, "version");
+            if (cJSON_IsString(version)) {
+                strncpy(msg.version, version->valuestring, sizeof(msg.version) - 1);
+            }
 
             if (xQueueSend(ota_queue, &msg, pdMS_TO_TICKS(1000)) == pdTRUE) {
-                ESP_LOGI(TAG, "Message sent to OTA Queue: %s", msg.command);
+                ESP_LOGI(TAG, "Message sent to OTA Queue: path=%s, can_id=0x%" PRIX32,
+                         msg.command, msg.can_id);
             } else {
                 ESP_LOGE(TAG, "Failed to send message to OTA Queue");
             }
+
+            cJSON_Delete(json);
+            free(data_copy);
             break;
         }
 
